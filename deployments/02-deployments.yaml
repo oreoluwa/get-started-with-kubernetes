@@ -1,0 +1,91 @@
+apiVersion: apps/v1
+kind: StatefulSet
+# kind: Deployment
+metadata:
+  name: zone-mta-server
+  namespace: email
+spec:
+  serviceName: zone-mta-headless
+  replicas: 2
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app: zone-mta-server
+      tier: email
+  # strategy:
+  #   rollingUpdate:
+  #     maxSurge: 1
+  #     maxUnavailable: 1
+  #   type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: zone-mta-server
+        tier: email
+        redis-client: "true"
+        redis-sentinel-client: "true"
+        smtp-starttls: "true"
+        smtps: "true"
+      name: zone-mta-server-deployment
+    spec:
+      containers:
+        - name: zone-mta
+          args:
+            - npm
+            - start
+          envFrom:
+            # - configMapRef:
+            #     name: email-config
+            - configMapRef:
+                name: environment-config
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: redisduck
+                  key: redis-password
+            - name: MONGO_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: mongoduck-mongodb
+                  key: mongodb-password
+            - name: INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          image: r.cfcr.io/oreoluwa/mailserver/zone-mta:3
+          volumeMounts:
+            - mountPath: /var/app/config/extras/base.js
+              name: configurations
+              subPath: base.js
+            - mountPath: /var/app/config/extras/plugins.js
+              name: configurations
+              subPath: plugins.js
+            - mountPath: /var/app/config/interfaces/smtpsFeed.js
+              name: configurations
+              subPath: smtpsFeed.js
+            - name: tls
+              mountPath: /etc/certs
+              readOnly: true
+
+          ports:
+            - name: smtp-starttls
+              containerPort: 587
+              protocol: TCP
+            - name: smtps
+              containerPort: 465
+              protocol: TCP
+
+      volumes:
+        - configMap:
+            name: zone-mta-config
+          name: configurations
+        - secret:
+            secretName: email-tls
+          name: tls
+      imagePullSecrets:
+        - name: registry-credential
+      restartPolicy: Always
+      securityContext: {}
+      terminationGracePeriodSeconds: 30
